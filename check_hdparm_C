@@ -1,0 +1,31 @@
+#!/bin/bash
+
+# unknown (drive does not support this command), 
+# active/idle (normal  operation), 
+# standby (low power mode, drive has spun down), or sleeping
+state=`/sbin/hdparm -C /dev/$1 | grep "drive state is" | awk '{print $4}'`
+
+#echo $state
+
+# performance data http://docs.pnp4nagios.org/pnp-0.6/about#system_requirements
+
+case $state in
+	"standby"*)
+		echo "OK - drive $1 state is $state|STATE=0;;;-1;1"
+		exit 0
+		;;
+	"active/idle"*)
+		echo "WARNING - drive $1 state is $state|STATE=1;;;-1;1"
+		exit 1
+		;;
+#	*)
+#		echo "CRITICAL - ...."
+#		exit 2
+#		;;
+	*)
+		echo "UNKNOWN - drive $1 state is $state|STATE=-1;;;-1;1"
+		exit 3
+		;;
+esac
+
+

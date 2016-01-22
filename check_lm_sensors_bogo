@@ -1,0 +1,151 @@
+#! /bin/sh
+
+PATH=/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/local/sbin
+
+PROGNAME=`basename $0`
+PROGPATH=`echo $0 | sed -e 's,[\\/][^\\/][^\\/]*$,,'`
+REVISION="0.9.0"
+
+print_usage() {
+	echo "Usage: "
+	echo "  $PROGNAME -s sensorname (eg. 'CPU temp') [ -w warn_if_greater  ] [ -c crititcal_if_greater ]"
+	echo "                 [ -W warn_if_less ] [ -C crit_if_less ] [ -pmin perfdata_min_value ] [ -pmax perfdata_max_value ] "
+}
+print_example() {
+	echo "Examples: "
+	echo "  check_lm_sensors_bogo -s 'Core 0' -w 65 -c 75 -pmax 100"
+	echo "  check_lm_sensors_bogo -s fan1 -W 800 -C 600 -pmax 2000"
+}
+print_revision() {
+	echo "$PROGNAME version: $REVISION"
+	echo "Bohuslav Riha - http://www.gnu.org/licenses/gpl-2.0.txt"
+}
+
+print_help() {	
+	print_revision
+	echo ""
+	echo "This plugin checks hardware status using the lm_sensors package, "
+	echo "which needs to be correctly configure beforehand (command sensors)."
+	echo ""
+	print_usage
+	echo ""
+	print_example
+	echo ""
+	exit 0
+}
+
+CONST_MAX=99999
+CONST_MIN=-99999
+
+WARN_GT=$CONST_MAX
+CRIT_GT=$CONST_MAX
+WARN_LT=$CONST_MIN
+CRIT_LT=$CONST_MIN
+PERFDATA_MIN=0
+PERFDATA_MAX=
+PERFDATA_WARN=
+PERFDATA_CRIT=
+
+while :
+do
+case "$1" in
+	-h | --help)
+		print_help
+		exit 0
+		;;
+	-v | --version)
+   		print_revision
+		exit 0
+		;;
+	-s | --sensor)
+		SENSOR="$2"
+		shift 2
+		;;
+	-w)
+		WARN_GT="$2"
+		shift 2
+		;;
+	-c)
+		CRIT_GT="$2"
+		shift 2
+		;;
+	-W)
+		WARN_LT="$2"
+		shift 2
+		;;
+	-C)
+		CRIT_LT="$2"
+		shift 2
+		;;
+	-pmax)
+		PERFDATA_MAX="$2"
+		shift 2
+		;;
+	-pmin)
+		PERFDATA_MIN="$2"
+		shift 2
+		;;
+	--) # end of all options
+		shift
+		break
+		;;
+	-*)
+		echo "Unknown parameter: $1" >&2
+		exit 1
+		;;
+	*) # no more options
+		break
+		;;
+esac
+done
+if [ -z "$SENSOR" ]; then
+	echo "Parameter -s required."
+	exit -1
+fi
+
+#replace spaces with underscores
+SENSOR_SAN=${SENSOR// /_}
+# now, clean out anything that's not alphanumeric or an underscore
+SENSOR_SAN=${SENSOR_SAN//[^a-zA-Z0-9_]/}
+
+if [ "$WARN_GT" -ne $CONST_MAX ] || [ "$CRIT_GT" -ne $CONST_MAX ]; then
+	PERFDATA_WARN=$WARN_GT
+	PERFDATA_CRIT=$CRIT_GT
+elif [ "$WARN_LT" -ne "$CONST_MIN" ] || [ "$CRIT_LT" -ne "$CONST_MIN" ]; then
+	PERFDATA_WARN=$WARN_LT
+	PERFDATA_CRIT=$CRIT_LT
+fi
+
+
+type sensors >& /dev/null
+RET=$?
+if [ "$RET" -ne 0 ]; then
+	echo "Command 'sensors' not found"
+	exit -1
+fi
+
+TEMPS=$(sensors | grep "$SENSOR" | sed -e "s/$SENSOR//" | sed -e 's/\.[[:digit:]]\+//g' | grep -Eo "[0-9.]{1,}" )
+TEMP_CURRENT=$(echo $TEMPS | cut -d' ' -f1)
+
+PERFDATA="${SENSOR_SAN}_TEMP=$TEMP_CURRENT;$PERFDATA_WARN;$PERFDATA_CRIT;$PERFDATA_MIN;$PERFDATA_MAX"
+
+if [ "$TEMP_CURRENT" -gt "$CRIT_GT" ]; then
+	echo -e "CRITICAL: '$SENSOR' @ $TEMP_CURRENT (gt $CRIT_GT)|$PERFDATA"
+	exit 2
+fi
+if [ "$TEMP_CURRENT" -lt "$CRIT_LT" ]; then
+	echo -e "CRITICAL: '$SENSOR' @ $TEMP_CURRENT (lt $CRIT_LT)|$PERFDATA"
+	exit 2
+fi
+if [ "$TEMP_CURRENT" -gt "$WARN_GT" ]; then
+	echo -e "WARNING: '$SENSOR' @ $TEMP_CURRENT (gt $WARN_GT)|$PERFDATA"
+	exit 1
+fi
+if [ "$TEMP_CURRENT" -lt "$WARN_LT" ]; then
+	echo -e "WARNING: '$SENSOR' @ $TEMP_CURRENT (lt $WARN_LT)|$PERFDATA"
+	exit 1
+fi
+
+echo -e "OK: '$SENSOR' @ $TEMP_CURRENT|$PERFDATA"
+exit 0
+
