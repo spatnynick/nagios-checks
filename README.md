@@ -9,8 +9,8 @@ which needs to be correctly configure beforehand (command 'sensors' has to retur
 
 <h2>check_hdparm_C</h2>
 <p>Checks whether specified disc is in standby (spin-down) or in active/idle (spin-up) mode.
-I just like to have stored in Nagios graphs statistids of my spinup/down, e.g. to be able to check
-whether my discs are not spinned-up too often</p>
+I just like to see in my Nagios's graphs statistics of my discs spinup/down, e.g. to be able to check
+whether my discs are not started too often</p>
 
 Enjoy, Bohu
 
