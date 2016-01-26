@@ -11,7 +11,7 @@ print_usage() {
 	echo "  $PROGNAME -s sensorname (eg. 'CPU temp') [ -w warn_if_greater  ] [ -c crititcal_if_greater ]"
 	echo "                 [ -W warn_if_less ] [ -C crit_if_less ] [ -pmin perfdata_min_value ] [ -pmax perfdata_max_value ] "
 }
-print_example() {
+print_examples() {
 	echo "Examples: "
 	echo "  check_lm_sensors_bogo -s 'Core 0' -w 65 -c 75 -pmax 100"
 	echo "  check_lm_sensors_bogo -s fan1 -W 800 -C 600 -pmax 2000"
@@ -24,12 +24,14 @@ print_revision() {
 print_help() {	
 	print_revision
 	echo ""
-	echo "This plugin checks hardware status using the lm_sensors package, "
-	echo "which needs to be correctly configure beforehand (command sensors)."
+	echo "A plugin in bash to checks hardware status using the lm_sensors package, "
+	echo "which needs to be correctly configure beforehand (command sensors has to return data)."
+	echo ""
+	echo "Based on check_lm_sensors plugin by Egidio Garbin"
 	echo ""
 	print_usage
 	echo ""
-	print_example
+	print_examples
 	echo ""
 	exit 0
 }
