@@ -4,18 +4,30 @@ PATH=/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/local/sbin
 
 PROGNAME=`basename $0`
 PROGPATH=`echo $0 | sed -e 's,[\\/][^\\/][^\\/]*$,,'`
-REVISION="0.9.0"
+REVISION="0.9.1"
 
 print_usage() {
 	echo "Usage: "
 	echo "  $PROGNAME -v | --version" 
 	echo "  $PROGNAME -h | --help" 
-	echo "  $PROGNAME -H host [ -u user(ssh) ] -i interface"
+	echo "  $PROGNAME -H <host> [ -u <user(ssh)> ] -i <interface> [ --switch  ] [ -d | --debug ]"
+	echo 
+	echo "Options: "
+	echo "  -H | --host"
+	echo "    host to connect to"
+	echo "  -u | --user"
+	echo "    user to be used to log in to the host"
+	echo "  -i | --interface"
+	echo "    interface to be monitored, e.g. eth0"
+	echo "  --switch"
+	echo "    switch RX and TX (download/upload) values if required"
+	echo "  -d | --debug"
+	echo "    advanced output"
 }
 print_examples() {
 	echo "Example: "
 	echo "  check_if -H myrouter -u administrator -i ppp0"
-	echo "  returns e.g.: OK: ppp0 947/977MB down/up, 15 connections, 0.01 load|ppp0_RXbps=993982367, ppp0_TXbps=1024750598, ppp0_connections=15, load=0.01"
+	echo "  returns e.g.: OK: ppp0 10.55/2.33Mbs do/up, 4.35GB/1019.71MB do/up, 109 connections, 0.21 load including perfdata" 
 }
 print_revision() {
 	echo "$PROGNAME version: $REVISION"
@@ -26,7 +38,8 @@ print_help() {
 	print_revision
 	echo ""
 	echo "A plugin in bash designed to monitor router throughtput rate. "
-	echo "Requires a key-based ssh access to the remote host -H, user -u."
+	echo "Requires a key-based ssh access to the remote host -H / user -u"
+	echo "for local nagios user."
 	echo "Data is read from ifconfig command output."
 	echo "The plugin also returns number of active connections & current load."
 	echo ""
@@ -36,8 +49,22 @@ print_help() {
 	echo ""
 	exit 0
 }
+make_nice() {
+	if [ $1 -gt 1099511627776 ]; then
+		echo $( echo "scale=5;$1/1099511627776" | bc )TB
+	elif [ $1 -gt 1073741824 ]; then
+		echo $( echo "scale=2;$1/1073741824" | bc )GB
+	elif [ $1 -gt 1048576 ]; then
+		echo $( echo "scale=2;$1/1048576" | bc )MB
+	else
+		echo $( echo "$1/1024" | bc )KB
+	fi
+}
+
 
 USER=$( whoami )
+DEBUG=
+SWITCH_RXTX=
 
 while :
 do
@@ -61,6 +88,14 @@ case "$1" in
 	-i | --interface)
 		INTERFACE="$2"
 		shift 2
+		;;
+	--switch)
+		SWITCH_RXTX="1"
+		shift 1
+		;;
+	-d | --debug)
+		DEBUG="1"
+		shift 1
 		;;
 	--) # end of all options
 		shift
@@ -92,22 +127,64 @@ then
 	exit 2
 fi
 
-#echo $RAWDATA
-
 RX=$(echo $RAWDATA | sed 's/^.*RX bytes:\([0-9]\+\).*$/\1/' ) 
 TX=$(echo $RAWDATA | sed 's/^.*TX bytes:\([0-9]\+\).*$/\1/' )
-RXMB=$( echo "$RX/1048576" | bc )
-TXMB=$( echo "$TX/1048576" | bc )
+
+if [ -n "$SWITCH_RXTX" ]
+then
+	RX_FOO=$RX
+	RX=$TX
+	TX=$RX_FOO
+fi
+
+TIME=`date +%s`
+PREV_FILE=/tmp/check_if_${HOST}_${INTERFACE}.tmp
+[[ -f $PREV_FILE ]] &&  PREV_DT=`cat $PREV_FILE` || PREV_DT=
+echo $TIME,$RX,$TX > $PREV_FILE
+
+#RX_nice=$( echo "$RX/1048576" | bc )
+#TX_nice=$( echo "$TX/1048576" | bc )
+RX_nice=$( make_nice "$RX" )
+TX_nice=$( make_nice "$TX" )
 
 CONN=$( echo $RAWDATA | cut -d'|' -f2 | sed 's/\s*//g' )
 LOAD=$( echo $RAWDATA | cut -d'|' -f3 | sed 's/\s*//g' )
 
-#echo RX: -$RX-
-#echo TX: -$TX-
-#echo CONN: -$CONN-
+if [ -n "$PREV_DT" ]
+then
+	oldtime=`echo $PREV_DT|cut -d',' -f1`
+	oldRX=`echo $PREV_DT|cut -d',' -f2`
+	oldTX=`echo $PREV_DT|cut -d',' -f3`
+	diffRX=$(($RX - $oldRX))
+	diffTX=$(($TX - $oldTX))
+	if [ $diffRX -lt 0 ] || [ $diffTX -lt 0 ]
+	then
+		diffRX=0
+		diffTX=0
+	fi
+	difftime=$(($TIME - $oldtime))
+	RXrate_bps=$(($diffRX / $difftime * 8 ))
+	TXrate_bps=$(($diffTX / $difftime * 8 ))
+	RXrate_Mbs=`echo "scale=2;$RXrate_bps/1048576" | bc|sed 's/^\./0./'`
+	TXrate_Mbs=`echo "scale=2;$TXrate_bps/1048576" | bc|sed 's/^\./0./'`
+fi
 
-PERFDATA="${INTERFACE}_RXbps=$RX, ${INTERFACE}_TXbps=$TX, ${INTERFACE}_connections=$CONN, load=$LOAD"
+#PERFDATA="${INTERFACE}_RXratebps=$RXrate_bps, ${INTERFACE}_TXratebps=$TXrate_bps, ${INTERFACE}_RX=${RX}B, ${INTERFACE}_TX=${TX}B, ${INTERFACE}_connections=$CONN, load=$LOAD"
+PERFDATA="RXrate=${RXrate_bps}bps, TXrate=${TXrate_bps}bps, RX=${RX}B, TX=${TX}B, connections=$CONN, load=$LOAD"
 
-echo -e "OK: $INTERFACE $RXMB/${TXMB}MB down/up, $CONN connections, $LOAD load|$PERFDATA"
+echo -e "OK: $INTERFACE $RXrate_Mbs/${TXrate_Mbs}Mbs do/up, $RX_nice/${TX_nice} do/up, $CONN connections, $LOAD load|$PERFDATA"
+
+if [ -n "$DEBUG" ]
+then
+	echo $RAWDATA
+	echo
+	echo RX: -$RX-
+	echo TX: -$TX-
+	echo "RXrate: -$RXrate_bps- $RXrate_Mbs (diftime: $difftime, difRX: $diffRX)"
+	echo "TXrate: -$TXrate_bps- $TXrate_Mbs (diftime: $difftime, difTX: $diffTX)"
+	echo CONN: -$CONN-
+	echo LOAD: -$LOAD-
+fi
+
 exit 0
 
